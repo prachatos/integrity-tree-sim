@@ -1,0 +1,6 @@
+traces/
+*.o
+*.d
+res/
+10GB_50KR/
+*.out
