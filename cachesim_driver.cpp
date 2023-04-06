@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
     cache_t cache_core0;
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:f:F"))) {
+    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:f:F:v:V"))) {
         switch(opt) {
         case 'i':
         case 'I':
@@ -39,6 +39,10 @@ int main(int argc, char **argv) {
         case 'f':
         case 'F':
             config.f = true;
+            break;
+        case 'v':
+        case 'V':
+            config.v = true;
             break;
         default:
             print_help();
@@ -79,7 +83,7 @@ int main(int argc, char **argv) {
             assert(ret != 2);
             // Skip line
         }
-        if (count % (unsigned long long)10e6 == 0 && count) {
+        if (config.v && count % (unsigned long long)10e6 == 0 && count) {
             compute_stats(&cache_core0, &stats);
             print_statistics(&stats, &config);
         }
@@ -97,13 +101,14 @@ static void print_help(void) {
     printf("-h\t\tThis helpful output\n");
     printf("Metadata Cache parameters:\n");
     printf("  -c C\t\tTotal size for Metadata Cache in bytes is 2^C\n");
-    printf("  -b B\t\tSize of each block for Metadata Cache in bytes is 2^B\n");
     printf("  -s S\t\tNumber of blocks (ways) per set for Metadata Cache is 2^S\n");
+    printf("  -f F\t\tIf the trace has format (rw, addr)\n");
+    printf("  -v V\t\tPrint statistics every million accesses\n");
 }
 
 static void print_sim_config(sim_config_t *sim_config) {
-    printf("(C,S): (%" PRIu64 ",%" PRIu64 ")\n",
-        sim_config->c, sim_config->s
+    printf("(C,S): (%" PRIu64 " KiB,%" PRIu64 " way)\n",
+        (1UL << sim_config->c)/1024, (1UL << sim_config->s)
     );
 }
 

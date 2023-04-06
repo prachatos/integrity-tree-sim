@@ -43,6 +43,7 @@ typedef struct sim_config {
     uint64_t c;                     // Metadata cache size (log)
     uint64_t s;                     // Set associativity
     bool f;                         // R/W addr reversed or not
+    bool v;                         // Stats every million instructions or not
 } sim_config_t;
 
 typedef struct sim_stats {
@@ -56,16 +57,6 @@ typedef struct sim_stats {
     uint64_t writebacks_l1;         // total L1 evictions of dirty blocks
     double hit_ratio_l1;            // ratio of tag matches to TLB hits for L1 cache
     double miss_ratio_l1;           // ratio of tag mismatches to TLB hits for L1 cache
-    uint64_t accesses_tlb;      // times TLB accessed
-    uint64_t hits_tlb;          // times TLB hit
-    uint64_t misses_tlb;        // times TLB missed (translation fault)
-    double hit_ratio_tlb;       // ratio of TLB hits to TLB accesses
-    double miss_ratio_tlb;       // ratio of TLB misses to TLB accesses
-    uint64_t accesses_hw_ivpt;   // times HW inverted page table accessed
-    uint64_t hits_hw_ivpt;       // times there was a hit in HW_IPT after a TLB miss
-    uint64_t misses_hw_ivpt;     // times there was a miss in HW_IPT after a TLB miss (page fault)
-    double hit_ratio_hw_ivpt;       // ratio of HWIVPT hits to HWIVPT accesses
-    double miss_ratio_hw_ivpt;       // ratio of HWIVPT misses to HWIVPT accesses
     uint64_t cache_flush_writebacks;
     double avg_access_time;     // average access time for the entire system
     double avg_level;

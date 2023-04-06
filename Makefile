@@ -8,6 +8,8 @@ DFILES = $(patsubst %.c,%.d,$(wildcard *.c)) $(patsubst %.cpp,%.d,$(wildcard *.c
 HFILES = $(wildcard *.h *.hpp)
 PROG = cachesim
 
+FAST=1
+
 ifdef PROFILE
 FAST=1
 undefine DEBUG

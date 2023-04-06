@@ -117,7 +117,7 @@ static int64_t sim_verify_access(cache_t *cache, uint32_t level, uint64_t pfn, s
               << ", pfn " << std::hex << pfn << std::endl;
 #endif
     bool hit = sim_access_cache(cache, metadata_pfn, READ, stats);
-    if (rw == READ && !hit) {
+    if (rw == WRITE || !hit) {
     #ifdef DEBUG
         std::cout << "VERIFY: Received miss at level " << level << std::endl;
     #endif
