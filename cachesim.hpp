@@ -37,6 +37,7 @@ typedef struct cache {
     uint64_t b;                                 // Block size of cache
     uint64_t s;                                 // Set size of cache
     uint64_t idx;                               // Index or way select value
+    bool eager;                                 // Whether to do eager or lazy updates
 } cache_t;
 
 typedef struct sim_config {
@@ -44,6 +45,7 @@ typedef struct sim_config {
     uint64_t s;                     // Set associativity
     bool f;                         // R/W addr reversed or not
     bool v;                         // Stats every million instructions or not
+    bool eager;                     // Whether to do eager or lazy updates
 } sim_config_t;
 
 typedef struct sim_stats {

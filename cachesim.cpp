@@ -22,6 +22,7 @@ void sim_setup(cache_t *cache_core0, sim_config_t *config) {
     cache_core0->c = config->c;
     cache_core0->b = 6;
     cache_core0->s = config->s;
+    cache_core0->eager = config->eager;
     cache_core0->idx = config->c - config->s - cache_core0->b;
     cache_core0->cache = new std::map<uint64_t, cache_entry_t>[1 << cache_core0->idx];
     cache_core0->lruQ = new std::list<uint64_t>[1 << cache_core0->idx];
@@ -48,7 +49,8 @@ void sim_setup(cache_t *cache_core0, sim_config_t *config) {
  * @param rw 0 for Read or 1 for Write
  * @param stats Simulation stats
  */
-bool sim_access_cache(cache_t *cache, uint64_t pfn, bool rw, sim_stats_t* stats) {
+bool sim_access_cache(cache_t *cache, uint64_t pfn, bool rw, sim_stats_t* stats, bool eager,
+                      uint64_t orig_pfn, uint32_t level) {
     bool res = true;
     uint64_t idx = pfn % (1 << cache->idx);
     uint64_t tag = pfn >> cache->idx;
@@ -79,6 +81,12 @@ bool sim_access_cache(cache_t *cache, uint64_t pfn, bool rw, sim_stats_t* stats)
             ++stats->num_dram_accesses;
             ++stats->num_dram_writes;
             stats->writebacks_l1++;
+            if (!eager && level != total_levels - 1) {
+                // Find parent addr
+                uint64_t metadata_offset = orig_pfn >> ((level + 2) * BLOCKS_PER_TOC_NODE);
+                uint64_t metadata_pfn = lv_addr_offset[level + 1] + metadata_offset;
+                sim_access_cache(cache, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
+            }
         }
         // Remove the victim
         cache->cache[idx][victimTag].valid = false;
@@ -116,7 +124,7 @@ static int64_t sim_verify_access(cache_t *cache, uint32_t level, uint64_t pfn, s
     std::cout << "VERIFY: Generated address " << std::hex << metadata_pfn << " for level " << std::dec << level
               << ", pfn " << std::hex << pfn << std::endl;
 #endif
-    bool hit = sim_access_cache(cache, metadata_pfn, READ, stats);
+    bool hit = sim_access_cache(cache, metadata_pfn, READ, stats, eager, pfn, level);
     if (rw == WRITE || !hit) {
     #ifdef DEBUG
         std::cout << "VERIFY: Received miss at level " << level << std::endl;
@@ -130,7 +138,6 @@ static int64_t sim_verify_access(cache_t *cache, uint32_t level, uint64_t pfn, s
 }
 
 static void sim_write_access(cache_t *cache, uint32_t level, uint64_t pfn, sim_stats_t *stats, bool eager) {
-    assert(eager);
     // TODO: Lazy update
 
     if (level == total_levels - 1) {
@@ -144,9 +151,12 @@ static void sim_write_access(cache_t *cache, uint32_t level, uint64_t pfn, sim_s
     std::cout << "WRITE: Writing to address " << std::hex << metadata_pfn << " for level " << std::dec << level
               << ", pfn " << std::hex << pfn << std::endl;
 #endif
-    sim_access_cache(cache, metadata_pfn, WRITE, stats);   // Need to stop somewhere for lazy
+    bool hit = sim_access_cache(cache, metadata_pfn, WRITE, stats, eager, pfn, level);   // Need to stop somewhere for lazy
     ++stats->num_dram_accesses;
     ++stats->num_dram_writes;
+    if (!eager && hit) {
+        return;
+    }
     sim_write_access(cache, level + 1, pfn, stats, eager);
 }
 
@@ -162,13 +172,12 @@ void sim_access(cache_t *cache, bool rw, uint64_t addr, sim_stats_t* stats) {
     // 8 blocks --> 1 entry
     uint64_t addr_pfn = addr >> CPU_CACHE_BLOCK_SIZE;
     int lv_hit = 0;
-    bool eager = true;
     if (rw == READ) {
     #ifdef DEBUG
         std::cout << "ACCESS: Sending pfn " << std::hex << addr_pfn << " for addr " << addr << " to verify\n";
     #endif
         stats->reads++;
-        lv_hit = sim_verify_access(cache, 0, addr_pfn, stats, eager,  READ);
+        lv_hit = sim_verify_access(cache, 0, addr_pfn, stats, cache->eager,  READ);
         stats->total_levels += lv_hit;
     #ifdef DEBUG
         std::cout << "ACCESS: Verified pfn " << std::hex << addr_pfn << std::dec << " at level " << lv_hit << std::endl;
@@ -179,13 +188,13 @@ void sim_access(cache_t *cache, bool rw, uint64_t addr, sim_stats_t* stats) {
 #endif
         stats->writes++;
         // Go till root
-        lv_hit = sim_verify_access(cache, 0, addr_pfn, stats, eager, WRITE);
+        lv_hit = sim_verify_access(cache, 0, addr_pfn, stats, cache->eager, WRITE);
         stats->total_levels += lv_hit;
     #ifdef DEBUG
         std::cout << "Verified pfn " << std::hex << addr_pfn << std::dec << " at level " << lv_hit << std::endl;
     #endif
         // Set dirty bits
-        sim_write_access(cache, 0, addr_pfn, stats, eager);
+        sim_write_access(cache, 0, addr_pfn, stats, cache->eager);
     }
     // Generate eq metadata cache address
     // Issue a cache access and see if hit

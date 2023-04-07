@@ -11,13 +11,13 @@ static void print_sim_config(sim_config_t *sim_config);
 static void print_statistics(sim_stats_t* stats, sim_config_t *sim_config);
 
 int main(int argc, char **argv) {
-    sim_config_t config = {18, 2};
+    sim_config_t config = {18, 2, false, false, true};
     FILE *trace = NULL;
     int opt;
     cache_t cache_core0;
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:f:F:v:V"))) {
+    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:fFvVlL"))) {
         switch(opt) {
         case 'i':
         case 'I':
@@ -43,6 +43,10 @@ int main(int argc, char **argv) {
         case 'v':
         case 'V':
             config.v = true;
+            break;
+        case 'l':
+        case 'L':
+            config.eager = false;
             break;
         default:
             print_help();
@@ -104,6 +108,7 @@ static void print_help(void) {
     printf("  -s S\t\tNumber of blocks (ways) per set for Metadata Cache is 2^S\n");
     printf("  -f F\t\tIf the trace has format (rw, addr)\n");
     printf("  -v V\t\tPrint statistics every million accesses\n");
+    printf("  -l L\t\tEnable lazy update\n");
 }
 
 static void print_sim_config(sim_config_t *sim_config) {
@@ -126,7 +131,7 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *config) {
     printf("Metadata Cache hit ratio: %.3f\n", stats->hit_ratio_l1);
     printf("Metadata Cache miss ratio: %.3f\n", stats->miss_ratio_l1);
     printf("Metadata Cache writebacks due user level conflicts: %" PRIu64 "\n", stats->writebacks_l1);
-    printf("Metadata Cache average access time (AAT): %.3f\n", stats->avg_access_time);
+    //printf("Metadata Cache average access time (AAT): %.3f\n", stats->avg_access_time);
     printf("Average level for verification hit: %.2f\n", stats->avg_level);
     printf("Total DRAM accesses: %" PRIu64 "\n", stats->num_dram_accesses);
     printf("\n");
