@@ -9,22 +9,20 @@
 static void print_help(void);
 static void print_sim_config(sim_config_t *sim_config);
 static void print_statistics(sim_stats_t* stats, sim_config_t *sim_config);
-static void print_statistics_all_nodes(sim_stats_t* stats, sim_config_t *config);
 
 int main(int argc, char **argv) {
-    sim_config_t config = {18, 2};
-    FILE *trace[NUM_NODES] = {NULL};
+    sim_config_t config = {18, 2, false, false, true};
+    FILE *trace = NULL;
     int opt;
-    //cache_t cache_core0;
-    cache_t cache_core[NUM_NODES];
+    cache_t cache_core0;
 
     /* Read arguments */
     while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:fFvVlL"))) {
         switch(opt) {
         case 'i':
         case 'I':
-                trace[0] = fopen(optarg, "r");
-                if (trace[0] == NULL) {
+                trace = fopen(optarg, "r");
+                if (trace == NULL) {
                     perror("fopen");
                     printf("Could not open the input trace file\n");
                     return 1;
@@ -56,72 +54,48 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (trace[0] == NULL) {
+    if (trace == NULL) {
         perror("fopen");
         printf("Could not open the input trace file");
         return 1;
     }
-
-    /// FIXME!!!! lazy hardcode for now.. will fix this later
-    if(NUM_NODES==2){
-        //trace[1]=fopen("/home/albert/its_traces/rand_access_t1.out", "r");
-        trace[1]=fopen("/home/albert/its_traces/rand_access_shorter.out", "r");
-        if (trace[1] == NULL) {
-            perror("fopen");
-            printf("Could not open the input trace1 file");
-        return 1;
-    }
-    }
-    
-
     /* Setup the cache */
 
-    sim_setup(cache_core, &config);
+    sim_setup(&cache_core0, &config);
 
     /* Setup statistics */
-    sim_stats_t stats[NUM_NODES];
-    for(int i=0; i<NUM_NODES;i++){
-        memset(&(stats[i]), 0, sizeof stats[i]);
-    }
+    sim_stats_t stats;
+    memset(&stats, 0, sizeof stats);
     print_sim_config(&config);
     /* Begin reading the file */
     uint64_t address;
     int rw;
-    int count[NUM_NODES] = {0};
-    bool any_trace_done=false;
-    while(!any_trace_done){
-    //while (!feof(trace[0])) {
-        for(int i=0; i<NUM_NODES;i++){
-            int ret = 0;
-            if (config.f)
-                ret = fscanf(trace[i], "%d 0x%" PRIx64 "\n", &rw, &address);
-            else
-                ret = fscanf(trace[i], "0x%" PRIx64 " %d\n", &address, &rw);
-            if(ret == 2) {
-                sim_access(cache_core, i, (bool)rw, address, stats);
-                ++count[i];
-            } else {
-                char *line = NULL;
-                size_t len = 0;
-                int ret = getline(&line, &len, trace[i]);
-                assert(ret != 2);
-                // Skip line
-            }
-            if (config.v && count[i] % (unsigned long long)10e6 == 0 && count[i]) {
-                compute_stats(&cache_core[i], &stats[i]);
-                print_statistics(&stats[i], &config);
-            }
+    int count = 0;
+    while (!feof(trace)) {
+        int ret = 0;
+        if (config.f)
+            ret = fscanf(trace, "%d 0x%" PRIx64 "\n", &rw, &address);
+        else
+            ret = fscanf(trace, "0x%" PRIx64 " %d\n", &address, &rw);
+        if(ret == 2) {
+            sim_access(&cache_core0, (bool)rw, address, &stats);
+            ++count;
+        } else {
+            char *line = NULL;
+            size_t len = 0;
+            int ret = getline(&line, &len, trace);
+            assert(ret != 2);
+            // Skip line
         }
-        for(int i=0; i<NUM_NODES;i++){
-            if(feof(trace[i])){
-                any_trace_done=true;
-            }
+        if (config.v && count % (unsigned long long)10e6 == 0 && count) {
+            compute_stats(&cache_core0, &stats);
+            print_statistics(&stats, &config);
         }
     }
 
-    sim_finish(cache_core, stats);
+    sim_finish(&cache_core0, &stats);
 
-    print_statistics_all_nodes(stats, &config);
+    print_statistics(&stats, &config);
 
     return 0;
 }
@@ -159,16 +133,6 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *config) {
     printf("Metadata Cache writebacks due user level conflicts: %" PRIu64 "\n", stats->writebacks_l1);
     //printf("Metadata Cache average access time (AAT): %.3f\n", stats->avg_access_time);
     printf("Average level for verification hit: %.2f\n", stats->avg_level);
-    printf("\n");
-    printf("Metadata inval messages: %" PRIu64 "\n", stats->num_inval_msgs);
-    printf("Metadata block transfers: %" PRIu64 "\n", stats->num_block_transfer);
-    printf("Metadata wriebacks from modify to shared: %" PRIu64 "\n", stats->num_wb_from_m2s);
     printf("Total DRAM accesses: %" PRIu64 "\n", stats->num_dram_accesses);
     printf("\n");
-}
-static void print_statistics_all_nodes(sim_stats_t* stats, sim_config_t *config) {
-    for(int i=0;i<NUM_NODES;i++){
-        printf("Node %d:\n",i);
-        print_statistics(&(stats[i]),config);
-    }
 }

@@ -4,3 +4,6 @@ traces/
 res/
 10GB_50KR/
 *.out
+cachesim
+.vscode
+.vscode/*

@@ -11,8 +11,6 @@
 #define BLOCKS_PER_TOC_NODE 3
 #define ULL unsigned long long
 
-#define NUM_NODES 2
-
 typedef enum {
     READ,
     WRITE,
@@ -39,7 +37,6 @@ typedef struct cache {
     uint64_t b;                                 // Block size of cache
     uint64_t s;                                 // Set size of cache
     uint64_t idx;                               // Index or way select value
-    double tag_compare_time;
     bool eager;                                 // Whether to do eager or lazy updates
 } cache_t;
 
@@ -71,15 +68,10 @@ typedef struct sim_stats {
     uint64_t num_dram_writes;
     uint64_t num_dram_reads;
     uint64_t num_dram_accesses;
-
-    //coherence stats
-    uint64_t num_inval_msgs;
-    uint64_t num_wb_from_m2s; //writeback triggered by read request to a modified block
-    uint64_t num_block_transfer;
 } sim_stats_t;
 
 extern void sim_setup(cache_t *cache_core0, sim_config_t *config);
-extern void sim_access(cache_t *cache, uint64_t node_id, bool rw, uint64_t addr, sim_stats_t* p_stats);
+extern void sim_access(cache_t *cache, bool rw, uint64_t addr, sim_stats_t* p_stats);
 extern void sim_finish(cache_t *cache, sim_stats_t *p_stats);
 extern void compute_stats(cache_t *cache, sim_stats_t *stats);
 
