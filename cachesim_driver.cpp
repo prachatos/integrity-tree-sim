@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <iostream>
 #include <cassert>
 #include "cachesim.hpp"
 
@@ -12,14 +13,14 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *sim_config);
 static void print_statistics_all_nodes(sim_stats_t* stats, sim_config_t *config);
 
 int main(int argc, char **argv) {
-    sim_config_t config = {18, 2};
+    sim_config_t config = {18, 2, 0, 0, 1, 0};
     FILE *trace[NUM_NODES] = {NULL};
     int opt;
     //cache_t cache_core0;
     cache_t cache_core[NUM_NODES];
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:fFvVlL"))) {
+    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:fFvVlLoO"))) {
         switch(opt) {
         case 'i':
         case 'I':
@@ -29,6 +30,7 @@ int main(int argc, char **argv) {
                     printf("Could not open the input trace file\n");
                     return 1;
                 }
+                //trace[1] = fopen(optarg, "r");
                 break;
         case 'c': // c
         case 'C':
@@ -50,12 +52,15 @@ int main(int argc, char **argv) {
         case 'L':
             config.eager = false;
             break;
+        case 'o':
+        case 'O':
+            config.single_owner = true;
+            break;
         default:
             print_help();
             return 0;
         }
     }
-
     if (trace[0] == NULL) {
         perror("fopen");
         printf("Could not open the input trace file");

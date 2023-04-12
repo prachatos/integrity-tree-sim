@@ -9,6 +9,8 @@
 
 std::vector<uint64_t> lv_addr_offset;
 uint64_t total_levels;
+// TODO: Make this per block
+bool single_owner = false;
 
 /**
  * @brief Subroutine for initializing the cache simulator. You many add and initialize any global or heap
@@ -38,6 +40,7 @@ void sim_setup(cache_t *cache_core, sim_config_t *config) {
     for (uint64_t i = 1; i < total_levels; ++i, lv_size >>= BLOCKS_PER_TOC_NODE) {
         lv_addr_offset[i] = lv_addr_offset[i - 1] + lv_size;
     }
+    single_owner = config->single_owner;
 #ifdef DEBUG
     for (uint64_t i = 0; i < total_levels; ++i) {
         std::cout << "INIT: Level[" << i << "] offset: " << std::hex << lv_addr_offset[i] << std::endl;
@@ -92,6 +95,10 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             for(uint64_t i=0; i<NUM_NODES;i++){
                 if(i!=node_id){
                     if(snoop_cache( cache,i,idx,tag) != COH_STATE_INVAL){
+                        if (single_owner) {
+                            std::cerr << "WARNING - invalid coherence state with single ownership";
+                            assert(false);
+                        }
                         inval_block(cache,i,idx,tag);
                         //increment for every block that is actually invalidated?
                         //  or broadcast to everyone if not in EX or MOD state?
@@ -108,6 +115,10 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             for(uint64_t i=0; i<NUM_NODES;i++){
                 if(i!=node_id){
                     coh_state_t cstate = snoop_cache( cache,i,idx,tag);
+                    if (single_owner && cstate != COH_STATE_INVAL) {
+                        std::cerr << "WARNING - invalid coherence state with single ownership";
+                        assert(false);
+                    }
                     if(cstate!=COH_STATE_INVAL){
                         sharers_tmp++;
                     }
@@ -128,7 +139,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             }
             if(sharers_tmp==0) cache[node_id].cache[idx][tag].coh_state = COH_STATE_EXCLUSIVE;
             else cache[node_id].cache[idx][tag].coh_state = COH_STATE_SHARED;
-
         }
         auto it = std::find(cache[node_id].lruQ[idx].begin(), cache[node_id].lruQ[idx].end(), tag);
         if (it != cache[node_id].lruQ[idx].end())
@@ -152,8 +162,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 if(cstate!=COH_STATE_INVAL){
                     res=true;
                     inval_block(cache,i,idx,tag);
-                    stats[node_id].num_inval_msgs++;          
+                    stats[node_id].num_inval_msgs++;
                     cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
+                    if (single_owner) {
+                        // only one in non-inval state
+                        break;
+                    }
                 }
             }
         }
@@ -165,22 +179,40 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
                 if(cstate==COH_STATE_EXCLUSIVE){
                     res=true;
-                    cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
-                    cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                    if (!single_owner) {
+                        cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                    }  else {
+                        inval_block(cache,i,idx,tag);
+                        stats[node_id].num_inval_msgs++;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                    }
                 }
                 else if(cstate==COH_STATE_SHARED){
                     res=true;
-                    cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
-                    cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                    if (!single_owner) {
+                        cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                    } else {
+                        inval_block(cache,i,idx,tag);
+                        stats[node_id].num_inval_msgs++;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                    }
                 }
-                else if(cstate==COH_STATE_MODIFIED){
+                else if(cstate==COH_STATE_MODIFIED) {
                     res=true;
-                    cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
-                    cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     stats[i].num_wb_from_m2s++;
                     //update writeback stat for the other node
                     stats[i].num_dram_accesses++;
                     stats[i].num_dram_writes++;
+                    if (!single_owner) {
+                        cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
+                    } else {
+                        inval_block(cache,i,idx,tag);
+                        stats[node_id].num_inval_msgs++;
+                        cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                    }
                 }
             }
         }

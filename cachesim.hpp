@@ -49,6 +49,7 @@ typedef struct sim_config {
     bool f;                         // R/W addr reversed or not
     bool v;                         // Stats every million instructions or not
     bool eager;                     // Whether to do eager or lazy updates
+    bool single_owner;              // Single ownership for multinode case
 } sim_config_t;
 
 typedef struct sim_stats {
