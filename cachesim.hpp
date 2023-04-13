@@ -11,7 +11,7 @@
 #define BLOCKS_PER_TOC_NODE 3
 #define ULL unsigned long long
 
-#define NUM_NODES 2
+#define NUM_NODES 1
 
 typedef enum {
     READ,
@@ -29,6 +29,9 @@ typedef struct cache_entry {
     bool valid;                 // valid bit
     bool dirty;                 // dirty bit
     coh_state_t coh_state;      // coherence state
+    bool single_owner;          // single owner block, note owner_id is implied
+    uint64_t num_reads;
+    uint64_t num_writes;
 } cache_entry_t;
 
 typedef struct cache {

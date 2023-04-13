@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     cache_t cache_core[NUM_NODES];
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "i:I:c:C:s:S:fFvVlLoO"))) {
+    while(-1 != (opt = getopt(argc, argv, "i:I:2:c:C:s:S:fFvVlLoO"))) {
         switch(opt) {
         case 'i':
         case 'I':
@@ -32,6 +32,14 @@ int main(int argc, char **argv) {
                 }
                 //trace[1] = fopen(optarg, "r");
                 break;
+        case '2':
+            trace[1] = fopen(optarg, "r");
+            if (trace[1] == NULL) {
+                perror("fopen");
+                printf("Could not open the input trace file\n");
+                return 1;
+            }
+            break;
         case 'c': // c
         case 'C':
             config.c = atoi(optarg);
@@ -68,14 +76,14 @@ int main(int argc, char **argv) {
     }
 
     /// FIXME!!!! lazy hardcode for now.. will fix this later
-    if(NUM_NODES==2){
+    if(NUM_NODES==2 && !trace[1]){
         //trace[1]=fopen("/home/albert/its_traces/rand_access_t1.out", "r");
         trace[1]=fopen("/home/albert/its_traces/rand_access_shorter.out", "r");
         if (trace[1] == NULL) {
             perror("fopen");
             printf("Could not open the input trace1 file");
-        return 1;
-    }
+            return 1;
+        }
     }
     
 
@@ -113,6 +121,7 @@ int main(int argc, char **argv) {
                 // Skip line
             }
             if (config.v && count[i] % (unsigned long long)10e6 == 0 && count[i]) {
+                printf("Node %d:\n",i);
                 compute_stats(&cache_core[i], &stats[i]);
                 print_statistics(&stats[i], &config);
             }
@@ -167,7 +176,7 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *config) {
     printf("\n");
     printf("Metadata inval messages: %" PRIu64 "\n", stats->num_inval_msgs);
     printf("Metadata block transfers: %" PRIu64 "\n", stats->num_block_transfer);
-    printf("Metadata wriebacks from modify to shared: %" PRIu64 "\n", stats->num_wb_from_m2s);
+    printf("Metadata writebacks from modify to shared: %" PRIu64 "\n", stats->num_wb_from_m2s);
     printf("Total DRAM accesses: %" PRIu64 "\n", stats->num_dram_accesses);
     printf("\n");
 }

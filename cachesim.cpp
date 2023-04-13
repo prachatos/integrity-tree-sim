@@ -91,11 +91,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         if (rw == WRITE){
             cache[node_id].cache[idx][tag].dirty = true;
             cache[node_id].cache[idx][tag].coh_state = COH_STATE_MODIFIED;
+            cache[node_id].cache[idx][tag].num_writes++;
             //COHERENCE ACTION for HIT WRITE (invalidate everyone else)
             for(uint64_t i=0; i<NUM_NODES;i++){
                 if(i!=node_id){
                     if(snoop_cache( cache,i,idx,tag) != COH_STATE_INVAL){
-                        if (single_owner) {
+                        if (cache[node_id].cache[idx][tag].single_owner) {
                             std::cerr << "WARNING - invalid coherence state with single ownership";
                             assert(false);
                         }
@@ -111,11 +112,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         else{
             //COHERENCE ACTION for read hit
             //None of this should execute if it's a hit..?
+            cache[node_id].cache[idx][tag].num_reads++;
             uint64_t sharers_tmp=0;
             for(uint64_t i=0; i<NUM_NODES;i++){
                 if(i!=node_id){
                     coh_state_t cstate = snoop_cache( cache,i,idx,tag);
-                    if (single_owner && cstate != COH_STATE_INVAL) {
+                    if (cache[node_id].cache[idx][tag].single_owner && cstate != COH_STATE_INVAL) {
                         std::cerr << "WARNING - invalid coherence state with single ownership";
                         assert(false);
                     }
@@ -144,6 +146,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         if (it != cache[node_id].lruQ[idx].end())
             cache[node_id].lruQ[idx].remove(tag);
         cache[node_id].lruQ[idx].push_back(tag);
+        std::cout << cache[node_id].cache[idx][tag].num_reads << " " << cache[node_id].cache[idx][tag].num_writes << std::endl;
         return res;
     }
     // miss
@@ -155,67 +158,89 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     //  take appropriate coherence action and increment block_transfer count
     if(rw==WRITE){
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
+        uint64_t prev_writes = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
                 //TODO FILL THIS OUT
                 if(cstate!=COH_STATE_INVAL){
                     res=true;
+                    if (cache[i].cache[idx][tag].single_owner) {
+                        // only one in non-inval state
+                        cache[node_id].cache[idx][tag].single_owner = true;
+                    }
+                    if (prev_writes == 0)
+                        prev_writes = cache[i].cache[idx][tag].num_writes;
                     inval_block(cache,i,idx,tag);
                     stats[node_id].num_inval_msgs++;
                     cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
-                    if (single_owner) {
-                        // only one in non-inval state
-                        break;
-                    }
                 }
             }
         }
+        cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
     }
     else{
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+        uint64_t prev_reads = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
                 if(cstate==COH_STATE_EXCLUSIVE){
+                    if (prev_reads == 0)
+                        prev_reads = cache[i].cache[idx][tag].num_reads;
                     res=true;
-                    if (!single_owner) {
+                    ++cache[i].cache[idx][tag].num_reads;
+                    if (!cache[i].cache[idx][tag].single_owner) {
                         cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     }  else {
                         inval_block(cache,i,idx,tag);
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                        cache[node_id].cache[idx][tag].single_owner = true;
+                        break;
                     }
                 }
                 else if(cstate==COH_STATE_SHARED){
+                    if (prev_reads == 0)
+                        prev_reads = cache[i].cache[idx][tag].num_reads;
                     res=true;
-                    if (!single_owner) {
+                    ++cache[i].cache[idx][tag].num_reads;
+                    if (!cache[i].cache[idx][tag].single_owner) {
                         cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     } else {
                         inval_block(cache,i,idx,tag);
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                        cache[node_id].cache[idx][tag].single_owner = true;
+                        break;
                     }
                 }
                 else if(cstate==COH_STATE_MODIFIED) {
+                    if (prev_reads == 0)
+                        prev_reads = cache[i].cache[idx][tag].num_reads;
                     res=true;
                     stats[i].num_wb_from_m2s++;
                     //update writeback stat for the other node
                     stats[i].num_dram_accesses++;
                     stats[i].num_dram_writes++;
-                    if (!single_owner) {
+                    ++cache[i].cache[idx][tag].num_reads;
+                    if (!cache[i].cache[idx][tag].single_owner) {
                         cache[i].cache[idx][tag].coh_state=COH_STATE_SHARED;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     } else {
+                        assert(cache[i].cache[idx][tag].single_owner);
                         inval_block(cache,i,idx,tag);
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
+                        cache[node_id].cache[idx][tag].single_owner = true;
+                        break;
                     }
                 }
             }
         }
+        cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
     }
     if(res==true){ //found in another node
         stats[node_id].num_block_transfer++;
@@ -253,7 +278,13 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     if (rw == READ && res==false) { // only go to dram if it wasn't in another cache
         ++stats[node_id].num_dram_accesses;
         ++stats[node_id].num_dram_reads;
+        if (single_owner) {
+            cache[node_id].cache[idx][tag].single_owner = true;
+        } else {
+            cache[node_id].cache[idx][tag].single_owner = false;
+        }
     }
+    std::cout << cache[node_id].cache[idx][tag].num_reads << " " << cache[node_id].cache[idx][tag].num_writes << std::endl;
     return res;
 }
 
