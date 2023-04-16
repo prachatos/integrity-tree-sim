@@ -11,7 +11,7 @@
 #define BLOCKS_PER_TOC_NODE 3
 #define ULL unsigned long long
 
-#define NUM_NODES 2
+#define NUM_NODES 1
 
 typedef enum {
     READ,
@@ -29,6 +29,9 @@ typedef struct cache_entry {
     bool valid;                 // valid bit
     bool dirty;                 // dirty bit
     coh_state_t coh_state;      // coherence state
+    bool single_owner;          // single owner block, note owner_id is implied
+    uint64_t num_reads;
+    uint64_t num_writes;
 } cache_entry_t;
 
 typedef struct cache {
@@ -50,6 +53,8 @@ typedef struct sim_config {
     bool v;                         // Stats every million instructions or not
     bool eager;                     // Whether to do eager or lazy updates
     bool single_owner;              // Single ownership for multinode case
+    bool hybrid_coh;
+    uint64_t write_thresh;
 } sim_config_t;
 
 typedef struct sim_stats {
@@ -72,6 +77,8 @@ typedef struct sim_stats {
     uint64_t num_dram_writes;
     uint64_t num_dram_reads;
     uint64_t num_dram_accesses;
+    uint64_t num_single_owner_set;
+    uint64_t num_single_owner_unset;
 
     //coherence stats
     uint64_t num_inval_msgs;
