@@ -13,14 +13,14 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *sim_config);
 static void print_statistics_all_nodes(sim_stats_t* stats, sim_config_t *config);
 
 int main(int argc, char **argv) {
-    sim_config_t config = {18, 2, 0, 0, 1, 0};
+    sim_config_t config = {18, 2, 0, 0, 1, 0, 0, 0};
     FILE *trace[NUM_NODES] = {NULL};
     int opt;
     //cache_t cache_core0;
     cache_t cache_core[NUM_NODES];
 
     /* Read arguments */
-    while(-1 != (opt = getopt(argc, argv, "i:I:2:c:C:s:S:fFvVlLoO"))) {
+    while(-1 != (opt = getopt(argc, argv, "i:I:2:3:4:c:C:s:S:t:T:fFvVlLoOhH"))) {
         switch(opt) {
         case 'i':
         case 'I':
@@ -35,6 +35,22 @@ int main(int argc, char **argv) {
         case '2':
             trace[1] = fopen(optarg, "r");
             if (trace[1] == NULL) {
+                perror("fopen");
+                printf("Could not open the input trace file\n");
+                return 1;
+            }
+            break;
+        case '3':
+            trace[2] = fopen(optarg, "r");
+            if (trace[2] == NULL) {
+                perror("fopen");
+                printf("Could not open the input trace file\n");
+                return 1;
+            }
+            break;
+        case '4':
+            trace[3] = fopen(optarg, "r");
+            if (trace[3] == NULL) {
                 perror("fopen");
                 printf("Could not open the input trace file\n");
                 return 1;
@@ -64,6 +80,14 @@ int main(int argc, char **argv) {
         case 'O':
             config.single_owner = true;
             break;
+        case 'h':
+        case 'H':
+            config.hybrid_coh = true;
+            break;
+        case 't':
+        case 'T':
+            config.write_thresh = atoi(optarg);
+            break;
         default:
             print_help();
             return 0;
@@ -74,7 +98,6 @@ int main(int argc, char **argv) {
         printf("Could not open the input trace file");
         return 1;
     }
-
     /// FIXME!!!! lazy hardcode for now.. will fix this later
     if(NUM_NODES==2 && !trace[1]){
         //trace[1]=fopen("/home/albert/its_traces/rand_access_t1.out", "r");
@@ -178,6 +201,8 @@ static void print_statistics(sim_stats_t* stats, sim_config_t *config) {
     printf("Metadata block transfers: %" PRIu64 "\n", stats->num_block_transfer);
     printf("Metadata writebacks from modify to shared: %" PRIu64 "\n", stats->num_wb_from_m2s);
     printf("Total DRAM accesses: %" PRIu64 "\n", stats->num_dram_accesses);
+    printf("Total transitions to Single Owner: %" PRIu64 "\n", stats->num_single_owner_set);
+    printf("Total transitions from Single Owner: %" PRIu64 "\n", stats->num_single_owner_unset);
     printf("\n");
 }
 static void print_statistics_all_nodes(sim_stats_t* stats, sim_config_t *config) {

@@ -11,6 +11,8 @@ std::vector<uint64_t> lv_addr_offset;
 uint64_t total_levels;
 // TODO: Make this per block
 bool single_owner = false;
+bool hybrid_coh = false;
+uint64_t write_thresh = 0;
 
 /**
  * @brief Subroutine for initializing the cache simulator. You many add and initialize any global or heap
@@ -41,6 +43,11 @@ void sim_setup(cache_t *cache_core, sim_config_t *config) {
         lv_addr_offset[i] = lv_addr_offset[i - 1] + lv_size;
     }
     single_owner = config->single_owner;
+    if (config->hybrid_coh) {
+        hybrid_coh = true;
+        write_thresh = config->write_thresh;
+        std::cout << write_thresh << std::endl;
+    }
 #ifdef DEBUG
     for (uint64_t i = 0; i < total_levels; ++i) {
         std::cout << "INIT: Level[" << i << "] offset: " << std::hex << lv_addr_offset[i] << std::endl;
@@ -61,10 +68,52 @@ coh_state_t snoop_cache(cache_t *cache, uint64_t node_id, uint64_t idx, uint64_t
 bool inval_block(cache_t *cache, uint64_t node_id, uint64_t idx, uint64_t tag){
     cache[node_id].cache[idx][tag].valid = false;
     cache[node_id].cache[idx][tag].dirty = false;
+    cache[node_id].cache[idx][tag].single_owner = false;
     cache[node_id].cache[idx][tag].coh_state=COH_STATE_INVAL;
     cache[node_id].set_entries[idx]--;
+    cache[node_id].cache[idx][tag].num_reads = 0;
+    cache[node_id].cache[idx][tag].num_writes = 0;
     cache[node_id].lruQ[idx].remove(tag);
     return true;
+}
+
+int maybe_mark_block_single_owner(cache_t *cache, uint64_t node_id, uint64_t idx, uint64_t tag, sim_stats_t* stats) {
+    if (!hybrid_coh) {
+        return 0;
+    }
+    if (!cache[node_id].cache[idx][tag].valid || cache[node_id].cache[idx][tag].coh_state == COH_STATE_INVAL) {
+        return 0;
+    }
+    if (cache[node_id].cache[idx][tag].num_writes >= write_thresh) { //cache[node_id].cache[idx][tag].num_writes * 1.0/cache[node_id].cache[idx][tag].num_reads > 0.5) {
+        if (!cache[node_id].cache[idx][tag].single_owner) {
+            cache[node_id].cache[idx][tag].single_owner = true;
+            for(uint64_t i=0; i<NUM_NODES;i++){
+                if(i!=node_id){
+                    if(snoop_cache( cache,i,idx,tag) != COH_STATE_INVAL){
+                        inval_block(cache,i,idx,tag);
+                        //increment for every block that is actually invalidated?
+                        //  or broadcast to everyone if not in EX or MOD state?
+                        stats[node_id].num_inval_msgs++;
+                    }
+                }
+            }
+            return 1;
+        }
+    } /*else {
+        if (cache[node_id].cache[idx][tag].single_owner) {
+            cache[node_id].cache[idx][tag].single_owner = false;
+            // it's in M state, so no one else can have it anyways
+            // so extra invals
+            for(uint64_t i=0; i<NUM_NODES;i++){
+                if(i!=node_id){
+                    cache[i].cache[idx][tag].single_owner = false;
+                }
+            }
+            stats[node_id]->num_single_owner_unset++;
+            return -1;
+        }
+    }*/
+    return 0;
 }
 
 /**
@@ -97,7 +146,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 if(i!=node_id){
                     if(snoop_cache( cache,i,idx,tag) != COH_STATE_INVAL){
                         if (cache[node_id].cache[idx][tag].single_owner) {
-                            std::cerr << "WARNING - invalid coherence state with single ownership";
+                            std::cerr << "WARNING - invalid coherence state with single ownership" << "(" << i << ","  << idx << "," << tag << ")\n";
                             assert(false);
                         }
                         inval_block(cache,i,idx,tag);
@@ -118,7 +167,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 if(i!=node_id){
                     coh_state_t cstate = snoop_cache( cache,i,idx,tag);
                     if (cache[node_id].cache[idx][tag].single_owner && cstate != COH_STATE_INVAL) {
-                        std::cerr << "WARNING - invalid coherence state with single ownership";
+                        std::cerr << "WARNING - invalid coherence state with single ownership" << "(" << i << ","  << idx << "," << tag << ")\n";
                         assert(false);
                     }
                     if(cstate!=COH_STATE_INVAL){
@@ -146,7 +195,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         if (it != cache[node_id].lruQ[idx].end())
             cache[node_id].lruQ[idx].remove(tag);
         cache[node_id].lruQ[idx].push_back(tag);
-        std::cout << cache[node_id].cache[idx][tag].num_reads << " " << cache[node_id].cache[idx][tag].num_writes << std::endl;
+        int marked = maybe_mark_block_single_owner(cache, node_id, idx, tag, stats);
+        if (marked > 0) {
+            stats[node_id].num_single_owner_set++;
+        } else if (marked < 0) {
+            stats[node_id].num_single_owner_unset++;
+        }
         return res;
     }
     // miss
@@ -158,7 +212,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     //  take appropriate coherence action and increment block_transfer count
     if(rw==WRITE){
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
-        uint64_t prev_writes = 0;
+        uint64_t prev_writes = 0, prev_reads = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
@@ -169,8 +223,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         // only one in non-inval state
                         cache[node_id].cache[idx][tag].single_owner = true;
                     }
-                    if (prev_writes == 0)
+                    if (prev_writes == 0) {
                         prev_writes = cache[i].cache[idx][tag].num_writes;
+                    }
+                    if (prev_reads == 0) {
+                        prev_reads = cache[i].cache[idx][tag].num_reads;
+                    }
                     inval_block(cache,i,idx,tag);
                     stats[node_id].num_inval_msgs++;
                     cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
@@ -178,16 +236,21 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             }
         }
         cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
+        cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
     }
     else{
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
-        uint64_t prev_reads = 0;
+        uint64_t prev_writes = 0, prev_reads = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
                 if(cstate==COH_STATE_EXCLUSIVE){
-                    if (prev_reads == 0)
+                    if (prev_writes == 0) {
+                        prev_writes = cache[i].cache[idx][tag].num_writes;
+                    }
+                    if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
+                    }
                     res=true;
                     ++cache[i].cache[idx][tag].num_reads;
                     if (!cache[i].cache[idx][tag].single_owner) {
@@ -202,8 +265,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     }
                 }
                 else if(cstate==COH_STATE_SHARED){
-                    if (prev_reads == 0)
+                    if (prev_writes == 0) {
+                        prev_writes = cache[i].cache[idx][tag].num_writes;
+                    }
+                    if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
+                    }
                     res=true;
                     ++cache[i].cache[idx][tag].num_reads;
                     if (!cache[i].cache[idx][tag].single_owner) {
@@ -218,8 +285,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     }
                 }
                 else if(cstate==COH_STATE_MODIFIED) {
-                    if (prev_reads == 0)
+                    if (prev_writes == 0) {
+                        prev_writes = cache[i].cache[idx][tag].num_writes;
+                    }
+                    if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
+                    }
                     res=true;
                     stats[i].num_wb_from_m2s++;
                     //update writeback stat for the other node
@@ -240,12 +311,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 }
             }
         }
+        cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
         cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
     }
     if(res==true){ //found in another node
         stats[node_id].num_block_transfer++;
     }
-
 
     //found in other block or not, insertion would work the same
 
@@ -264,14 +335,17 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             }
         }
         // Remove the victim
-        cache[node_id].cache[idx][victimTag].valid = false;
-        cache[node_id].cache[idx][victimTag].dirty = false;
-        cache[node_id].set_entries[idx]--;
-        cache[node_id].lruQ[idx].pop_front();
+        inval_block(cache, node_id, idx, victimTag);
     }
     cache[node_id].set_entries[idx]++;
     cache[node_id].lruQ[idx].push_back(tag);
     cache[node_id].cache[idx][tag].valid = true;
+    int marked = maybe_mark_block_single_owner(cache, node_id, idx, tag, stats);
+    if (marked > 0) {
+        stats[node_id].num_single_owner_set++;
+    } else if (marked < 0) {
+        stats[node_id].num_single_owner_unset++;
+    }
     if (rw == WRITE) {
         cache[node_id].cache[idx][tag].dirty = true;
     }
@@ -284,7 +358,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             cache[node_id].cache[idx][tag].single_owner = false;
         }
     }
-    std::cout << cache[node_id].cache[idx][tag].num_reads << " " << cache[node_id].cache[idx][tag].num_writes << std::endl;
     return res;
 }
 
@@ -299,8 +372,6 @@ static int64_t sim_verify_access(cache_t *cache, uint64_t node_id, uint32_t leve
     pfn = pfn % (MAX_MEM_SIZE / (1ULL << CPU_CACHE_BLOCK_SIZE));
     uint64_t metadata_offset = pfn >> ((level + 1) * BLOCKS_PER_TOC_NODE);
     uint64_t metadata_pfn = lv_addr_offset[level] + metadata_offset;
-    //std::cout << /*std::hex << */pfn << " " << act_addr << " " << level << std::endl;
-    //uint64_t act_addr = pfn >> ((level + 1) * 1);
 #ifdef DEBUG
     std::cout << "VERIFY: Generated address " << std::hex << metadata_pfn << " for level " << std::dec << level
               << ", pfn " << std::hex << pfn << std::endl;
