@@ -261,7 +261,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
-                        break;
                     }
                 }
                 else if(cstate==COH_STATE_SHARED){
@@ -281,7 +280,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
-                        break;
                     }
                 }
                 else if(cstate==COH_STATE_MODIFIED) {
@@ -306,7 +304,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
-                        break;
                     }
                 }
             }
