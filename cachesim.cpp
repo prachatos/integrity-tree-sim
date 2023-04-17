@@ -73,6 +73,7 @@ bool inval_block(cache_t *cache, uint64_t node_id, uint64_t idx, uint64_t tag){
     cache[node_id].set_entries[idx]--;
     cache[node_id].cache[idx][tag].num_reads = 0;
     cache[node_id].cache[idx][tag].num_writes = 0;
+    cache[node_id].cache[idx][tag].num_transfers = 0;
     cache[node_id].lruQ[idx].remove(tag);
     return true;
 }
@@ -93,7 +94,7 @@ int maybe_mark_block_single_owner(cache_t *cache, uint64_t node_id, uint64_t idx
                         inval_block(cache,i,idx,tag);
                         //increment for every block that is actually invalidated?
                         //  or broadcast to everyone if not in EX or MOD state?
-                        stats[node_id].num_inval_msgs++;
+                        //stats[node_id].num_inval_msgs++;
                     }
                 }
             }
@@ -212,7 +213,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     //  take appropriate coherence action and increment block_transfer count
     if(rw==WRITE){
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
-        uint64_t prev_writes = 0, prev_reads = 0;
+        uint64_t prev_writes = 0, prev_reads = 0, prev_transfers = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
@@ -229,6 +230,9 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
                     }
+                    if (prev_transfers == 0) {
+                        prev_transfers = cache[i].cache[idx][tag].num_transfers;
+                    }
                     inval_block(cache,i,idx,tag);
                     stats[node_id].num_inval_msgs++;
                     cache[node_id].cache[idx][tag].coh_state=COH_STATE_MODIFIED;
@@ -237,10 +241,12 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         }
         cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
         cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
+        if (res) cache[node_id].cache[idx][tag].num_transfers = prev_transfers + 1;
+        //std::cout << prev_writes + 1 << "," << prev_reads + 1 << std::endl;
     }
     else{
         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
-        uint64_t prev_writes = 0, prev_reads = 0;
+        uint64_t prev_writes = 0, prev_reads = 0, prev_transfers = 0;
         for(uint64_t i=0; i<NUM_NODES; i++){
             if(i!=node_id){
                 coh_state_t cstate = snoop_cache(cache,i,idx,tag);
@@ -251,6 +257,9 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
                     }
+                    if (prev_transfers == 0) {
+                        prev_transfers = cache[i].cache[idx][tag].num_transfers;
+                    }
                     res=true;
                     ++cache[i].cache[idx][tag].num_reads;
                     if (!cache[i].cache[idx][tag].single_owner) {
@@ -258,7 +267,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     }  else {
                         inval_block(cache,i,idx,tag);
-                        stats[node_id].num_inval_msgs++;
+                        //stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
                     }
@@ -270,6 +279,9 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
                     }
+                    if (prev_transfers == 0) {
+                        prev_transfers = cache[i].cache[idx][tag].num_transfers;
+                    }
                     res=true;
                     ++cache[i].cache[idx][tag].num_reads;
                     if (!cache[i].cache[idx][tag].single_owner) {
@@ -277,7 +289,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_SHARED;
                     } else {
                         inval_block(cache,i,idx,tag);
-                        stats[node_id].num_inval_msgs++;
+                        //stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
                     }
@@ -288,6 +300,9 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     }
                     if (prev_reads == 0) {
                         prev_reads = cache[i].cache[idx][tag].num_reads;
+                    }
+                    if (prev_transfers == 0) {
+                        prev_transfers = cache[i].cache[idx][tag].num_transfers;
                     }
                     res=true;
                     stats[i].num_wb_from_m2s++;
@@ -301,7 +316,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                     } else {
                         assert(cache[i].cache[idx][tag].single_owner);
                         inval_block(cache,i,idx,tag);
-                        stats[node_id].num_inval_msgs++;
+                        //stats[node_id].num_inval_msgs++;
                         cache[node_id].cache[idx][tag].coh_state=COH_STATE_EXCLUSIVE;
                         cache[node_id].cache[idx][tag].single_owner = true;
                     }
@@ -310,6 +325,8 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
         }
         cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
         cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
+        if (res) cache[node_id].cache[idx][tag].num_transfers = prev_transfers + 1;
+        //std::cout << prev_writes + 1 << "," << prev_reads + 1 << std::endl;
     }
     if(res==true){ //found in another node
         stats[node_id].num_block_transfer++;
@@ -460,6 +477,13 @@ void compute_stats(cache_t *cache, sim_stats_t *stats) {
                                 stats->accesses_l1 + DRAM_ACCESS_PENALTY * stats->misses_l1 * 1.0)/
                                 stats->accesses_l1;
     stats->avg_level = stats->total_levels * 1.0/(stats->reads + stats->writes);
+    /*for (unsigned j = 0; j < cache->idx; ++j) {
+        if (cache->cache[j].size() == 0)
+            continue;
+        for (auto k: cache->cache[j]) {
+            if (k.second.num_writes) std::cout << k.second.num_reads << "," << k.second.num_writes << "," << k.second.num_transfers << std::endl;
+        }
+    }*/
 }
 
 /**

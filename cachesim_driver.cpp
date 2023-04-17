@@ -143,15 +143,19 @@ int main(int argc, char **argv) {
                 assert(ret != 2);
                 // Skip line
             }
-            if (config.v && count[i] % (unsigned long long)10e6 == 0 && count[i]) {
+            if (config.v && count[i] % (unsigned long long)10e5 == 0 && count[i]) {
                 printf("Node %d:\n",i);
+                any_trace_done = true;
                 compute_stats(&cache_core[i], &stats[i]);
                 print_statistics(&stats[i], &config);
+                break;
             }
         }
-        for(int i=0; i<NUM_NODES;i++){
-            if(feof(trace[i])){
-                any_trace_done=true;
+        if (!any_trace_done) {
+            for(int i=0; i<NUM_NODES;i++){
+                if(feof(trace[i])){
+                    any_trace_done=true;
+                }
             }
         }
     }

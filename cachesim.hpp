@@ -32,6 +32,7 @@ typedef struct cache_entry {
     bool single_owner;          // single owner block, note owner_id is implied
     uint64_t num_reads;
     uint64_t num_writes;
+    uint64_t num_transfers;
 } cache_entry_t;
 
 typedef struct cache {
