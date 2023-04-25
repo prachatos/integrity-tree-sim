@@ -13,7 +13,7 @@ uint64_t total_levels;
 bool single_owner = false;
 bool hybrid_coh = false;
 uint64_t write_thresh = 0;
-
+static int64_t sim_verify_access(cache_t *cache, uint64_t node_id, uint32_t level, uint64_t pfn, sim_stats_t *stats, bool eager,bool rw);
 /**
  * @brief Subroutine for initializing the cache simulator. You many add and initialize any global or heap
  * variables as needed.
@@ -28,6 +28,13 @@ void sim_setup(cache_t *cache_core, sim_config_t *config) {
         cache_core[i].b = 6;
         cache_core[i].s = config->s;
 	cache_core[i].eager = config->eager;
+		if(cache_core[i].eager){
+			std::cout<<"eager"<<std::endl;
+		}
+		else{
+			std::cout<<"lazy"<<std::endl;
+
+		}
         cache_core[i].idx = config->c - config->s - cache_core[i].b;
         cache_core[i].cache = new std::map<uint64_t, cache_entry_t>[1 << cache_core[i].idx];
         cache_core[i].lruQ = new std::list<uint64_t>[1 << cache_core[i].idx];
@@ -337,19 +344,25 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     if (cache[node_id].set_entries[idx] == (uint64_t)(1 << cache[node_id].s)) {
         // victim needed if set is full
         uint64_t victimTag = cache[node_id].lruQ[idx].front();
+        // Remove the victim (moved eviction before handling parent update)
+        inval_block(cache, node_id, idx, victimTag);
         if (cache[node_id].cache[idx][victimTag].dirty) {
             ++stats[node_id].num_dram_accesses;
             ++stats[node_id].num_dram_writes;
             stats[node_id].writebacks_l1++;
             if (!eager && level != total_levels - 1) {
                 // Find parent addr
-                uint64_t metadata_offset = orig_pfn >> ((level + 2) * BLOCKS_PER_TOC_NODE);
-                uint64_t metadata_pfn = lv_addr_offset[level + 1] + metadata_offset;
-                sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
+                //uint64_t metadata_offset = orig_pfn >> ((level + 2) * BLOCKS_PER_TOC_NODE);
+                //uint64_t metadata_pfn = lv_addr_offset[level + 1] + metadata_offset;
+                //sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
+				
+				// Find Parent ADDR using idx and victimTag
+				//uint64_t idx = pfn % (1 << cache[node_id].idx);
+			    //uint64_t tag = pfn >> cache[node_id].idx;
+
+        		sim_verify_access(cache, node_id, level + 1, orig_pfn, stats, eager, rw);
             }
         }
-        // Remove the victim
-        inval_block(cache, node_id, idx, victimTag);
     }
     cache[node_id].set_entries[idx]++;
     cache[node_id].lruQ[idx].push_back(tag);
@@ -391,7 +404,8 @@ static int64_t sim_verify_access(cache_t *cache, uint64_t node_id, uint32_t leve
               << ", pfn " << std::hex << pfn << std::endl;
 #endif
     bool hit = sim_access_cache(cache, node_id, metadata_pfn, READ, stats, eager, pfn, level);
-    if (rw == WRITE || !hit) {
+    //if (rw == WRITE || !hit) {
+    if (((rw == WRITE) && eager ) || !hit) { // no need to go to root if lazy update?
     #ifdef DEBUG
         std::cout << "VERIFY: Received miss at level " << level << std::endl;
     #endif

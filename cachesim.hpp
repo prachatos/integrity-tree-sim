@@ -11,7 +11,7 @@
 #define BLOCKS_PER_TOC_NODE 3
 #define ULL unsigned long long
 
-#define NUM_NODES 2
+#define NUM_NODES 4
 
 typedef enum {
     READ,
