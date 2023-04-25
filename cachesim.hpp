@@ -29,6 +29,7 @@ typedef struct cache_entry {
     bool valid;                 // valid bit
     bool dirty;                 // dirty bit
 	uint64_t orig_pfn;			// used for eviction in lazy update
+	uint64_t block_lvl;			// used for eviction in lazy update
     coh_state_t coh_state;      // coherence state
     bool single_owner;          // single owner block, note owner_id is implied
     uint64_t num_reads;
