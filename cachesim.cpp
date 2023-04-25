@@ -149,6 +149,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             cache[node_id].cache[idx][tag].dirty = true;
             cache[node_id].cache[idx][tag].coh_state = COH_STATE_MODIFIED;
             cache[node_id].cache[idx][tag].num_writes++;
+            cache[node_id].cache[idx][tag].orig_pfn=orig_pfn;
             //COHERENCE ACTION for HIT WRITE (invalidate everyone else)
             for(uint64_t i=0; i<NUM_NODES;i++){
                 if(i!=node_id){
@@ -344,9 +345,11 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
     if (cache[node_id].set_entries[idx] == (uint64_t)(1 << cache[node_id].s)) {
         // victim needed if set is full
         uint64_t victimTag = cache[node_id].lruQ[idx].front();
+		uint64_t evicted_orig_pfn = cache[node_id].cache[idx][victimTag].orig_pfn;
+		bool dirty_wb = cache[node_id].cache[idx][victimTag].dirty;
         // Remove the victim (moved eviction before handling parent update)
         inval_block(cache, node_id, idx, victimTag);
-        if (cache[node_id].cache[idx][victimTag].dirty) {
+        if (dirty_wb) {
             ++stats[node_id].num_dram_accesses;
             ++stats[node_id].num_dram_writes;
             stats[node_id].writebacks_l1++;
@@ -357,10 +360,7 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 //sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
 				
 				// Find Parent ADDR using idx and victimTag
-				//uint64_t idx = pfn % (1 << cache[node_id].idx);
-			    //uint64_t tag = pfn >> cache[node_id].idx;
-
-        		sim_verify_access(cache, node_id, level + 1, orig_pfn, stats, eager, rw);
+        		sim_verify_access(cache, node_id, level + 1, evicted_orig_pfn, stats, eager, rw);
             }
         }
     }
