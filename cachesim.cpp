@@ -248,6 +248,9 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
                 }
             }
         }
+		if(res){//the owner/forwarder didn't have to invalidate itself
+			stats[node_id].num_inval_msgs--;
+		}
         cache[node_id].cache[idx][tag].num_writes = prev_writes + 1;
         cache[node_id].cache[idx][tag].num_reads = prev_reads + 1;
         if (res) cache[node_id].cache[idx][tag].num_transfers = prev_transfers + 1;
@@ -343,29 +346,6 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
 
     //found in other block or not, insertion would work the same
 
-    if (cache[node_id].set_entries[idx] == (uint64_t)(1 << cache[node_id].s)) {
-        // victim needed if set is full
-        uint64_t victimTag = cache[node_id].lruQ[idx].front();
-		uint64_t evicted_orig_pfn = cache[node_id].cache[idx][victimTag].orig_pfn;
-		uint64_t evicted_level = cache[node_id].cache[idx][victimTag].block_lvl;
-		bool dirty_wb = cache[node_id].cache[idx][victimTag].dirty;
-        // Remove the victim (moved eviction before handling parent update)
-        inval_block(cache, node_id, idx, victimTag);
-        if (dirty_wb) {
-            ++stats[node_id].num_dram_accesses;
-            ++stats[node_id].num_dram_writes;
-            stats[node_id].writebacks_l1++;
-            if (!eager && level != total_levels - 1) {
-                // Find parent addr
-                //uint64_t metadata_offset = orig_pfn >> ((level + 2) * BLOCKS_PER_TOC_NODE);
-                //uint64_t metadata_pfn = lv_addr_offset[level + 1] + metadata_offset;
-                //sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
-				
-				// Find Parent ADDR using idx and victimTag
-        		sim_verify_access(cache, node_id, evicted_level + 1, evicted_orig_pfn, stats, eager, rw);
-            }
-        }
-    }
     cache[node_id].set_entries[idx]++;
     cache[node_id].lruQ[idx].push_back(tag);
     cache[node_id].cache[idx][tag].valid = true;
@@ -387,6 +367,37 @@ bool sim_access_cache(cache_t *cache, uint64_t node_id, uint64_t pfn, bool rw, s
             cache[node_id].cache[idx][tag].single_owner = false;
         }
     }
+
+	//moved eviction handling to be done after the installation of the line.
+	// In reality, would need to evict before installing. but it breaks with the recursive thing..
+	//if (cache[node_id].set_entries[idx] == (uint64_t)(1 << cache[node_id].s)) {
+	if (cache[node_id].set_entries[idx]-1 == (uint64_t)(1 << cache[node_id].s)) {
+        // victim needed if set is full
+        uint64_t victimTag = cache[node_id].lruQ[idx].front();
+		uint64_t evicted_orig_pfn = cache[node_id].cache[idx][victimTag].orig_pfn;
+		uint64_t evicted_level = cache[node_id].cache[idx][victimTag].block_lvl;
+		bool dirty_wb = cache[node_id].cache[idx][victimTag].dirty;
+        // Remove the victim (moved eviction before handling parent update)
+        inval_block(cache, node_id, idx, victimTag);
+        if (dirty_wb) {
+            ++stats[node_id].num_dram_accesses;
+            ++stats[node_id].num_dram_writes;
+            stats[node_id].writebacks_l1++;
+            if (!eager && level != total_levels - 1) {
+                // Find parent addr
+                //uint64_t metadata_offset = orig_pfn >> ((level + 2) * BLOCKS_PER_TOC_NODE);
+                //uint64_t metadata_pfn = lv_addr_offset[level + 1] + metadata_offset;
+                //sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, orig_pfn, level + 1);
+				
+				//DBG counter
+				cache[node_id].lazy_eviction_count++;
+				//std::cout<<"lazy evictions from this access: "<<cache[node_id].lazy_eviction_count<<std::endl;
+				// Find Parent ADDR using idx and victimTag
+        		sim_verify_access(cache, node_id, evicted_level + 1, evicted_orig_pfn, stats, eager, WRITE);
+            }
+        }
+    }
+
     return res;
 }
 
@@ -405,7 +416,7 @@ static int64_t sim_verify_access(cache_t *cache, uint64_t node_id, uint32_t leve
     std::cout << "VERIFY: Generated address " << std::hex << metadata_pfn << " for level " << std::dec << level
               << ", pfn " << std::hex << pfn << std::endl;
 #endif
-    bool hit = sim_access_cache(cache, node_id, metadata_pfn, READ, stats, eager, pfn, level);
+    bool hit = sim_access_cache(cache, node_id, metadata_pfn, rw, stats, eager, pfn, level);
     //if (rw == WRITE || !hit) {
     if (((rw == WRITE) && eager ) || !hit) { // no need to go to root if lazy update?
     #ifdef DEBUG
@@ -452,6 +463,9 @@ static void sim_write_access(cache_t *cache, uint64_t node_id, uint32_t level, u
 void sim_access(cache_t *cache, uint64_t node_id, bool rw, uint64_t addr, sim_stats_t* stats) {
     // 64 bytes --> 1 CPU block
     // 8 blocks --> 1 entry
+	
+	cache[node_id].lazy_eviction_count=0;
+
     uint64_t addr_pfn = addr >> CPU_CACHE_BLOCK_SIZE;
     int lv_hit = 0;
     if (rw == READ) {
@@ -476,7 +490,7 @@ void sim_access(cache_t *cache, uint64_t node_id, bool rw, uint64_t addr, sim_st
         std::cout << "Verified pfn " << std::hex << addr_pfn << std::dec << " at level " << lv_hit << std::endl;
     #endif
         // Set dirty bits
-        sim_write_access(cache, node_id, 0, addr_pfn, stats, cache[node_id].eager);
+        //sim_write_access(cache, node_id, 0, addr_pfn, stats, cache[node_id].eager);
     }
     // Generate eq metadata cache address
     // Issue a cache access and see if hit

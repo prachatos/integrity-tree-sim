@@ -47,6 +47,7 @@ typedef struct cache {
     uint64_t idx;                               // Index or way select value
     double tag_compare_time;
     bool eager;                                 // Whether to do eager or lazy updates
+	uint64_t lazy_eviction_count;
 } cache_t;
 
 typedef struct sim_config {
